@@ -1,65 +1,59 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-contract ERC20 {
-    string public name;
-    string public symbol;
-    uint8 public decimals;
-    uint public totalSupply;
+import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
+import '@openzeppelin/contracts/token/ERC20/extensions/ERC20Capped.sol';
+import '@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol';
+
+contract ERC20Token is ERC20Capped, ERC20Burnable {
     address public owner;
+    uint256 public blockReward;
 
-    mapping (address => uint) public balanceOf;
-    mapping(address => mapping(address => uint)) public allowance;
-
-    event Transfer(address indexed from, address indexed to, uint amount);
-    event Approve(address owner, address spender, uint256 value);
+    modifier onlyOwner() {
+        require(owner == msg.sender, "You're not authorized");
+        _;
+    }
 
     constructor(
-        string memory _name,
-        string memory _symbol,
-        uint8 _decimals,
-        uint256 _initial_supply
-    ) {
-        require(_initial_supply > 0, "Initial supply must be positive");
-        require(_decimals > 0, "The decimals must be positive");
-        name = _name;
-        symbol = _symbol;
-        decimals=_decimals;
-        totalSupply = _initial_supply * (10 ** uint256(decimals));
-        balanceOf[msg.sender] = totalSupply;
+        uint256 cap,
+        uint256 reward
+    ) ERC20('Master Coin', 'MCN') ERC20Capped(cap * (10 ** decimals())) {
         owner = msg.sender;
+        _mint(owner, 7_000_000 * (10 ** decimals()));
+        blockReward = reward * (10 ** decimals());
     }
 
-    function transfer(address _to, uint256 _value) public returns(bool success) {
-        require(_to != address(0), "Invalid address");
-        require(balanceOf[msg.sender] > _value, "Insufficient balance");
-
-        balanceOf[msg.sender] -= _value;
-        balanceOf[_to] += _value;
-
-        emit Transfer(msg.sender, _to, _value);
-        return true;
+    function _mint(
+        address account,
+        uint256 amount
+    ) internal virtual override(ERC20Capped, ERC20) {
+        require(
+            ERC20.totalSupply() + amount <= cap(),
+            'ERC20Capped: cap exceeded'
+        );
+        super._mint(account, amount);
     }
 
-     function getAllowance(address _owner, address _spender) public view returns(bool success) {
-        return allowance[_owner][_spender] > 0;
+    function setBlockReward(uint256 _reward) public onlyOwner {
+        blockReward = _reward;
     }
 
-    function approve(address _to, uint256 _value) public returns(bool success){
-        allowance[msg.sender][_to] = _value;
-        return true;
+    function _mintMinerReward() internal {
+        _mint(block.coinbase, blockReward);
     }
 
-    function tranferFrom(address _from, address _to, uint256 _value) public returns(bool) {
-        require(_from != address(0) && _to != address(0), "Invalid addresses");
-        require(_value < balanceOf[_from], "Insufficient balance from the token owner");
-        require(allowance[_from][msg.sender] >= _value, "Allowance exceeded");
-
-        balanceOf[_from] -= _value;
-        balanceOf[_to] += _value;
-        allowance[_from][msg.sender] -= _value;
-
-        emit Approve( _from, _to, _value);
-        return true;
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 value
+    ) internal virtual override {
+        if (
+            from != address(0) &&
+            to != block.coinbase &&
+            block.coinbase != address(0)
+        ) {
+            _mintMinerReward();
+        }
+        super._beforeTokenTransfer(from, to, value);
     }
 }

@@ -1,16 +1,18 @@
-import { ethers } from "hardhat";
+import { ethers } from 'hardhat';
+import { ERC20Token } from '../typechain-types';
 
 async function main() {
-  
-  // const [owner, otherAccount] = ethers.getSigners()
+  const ERC20_factory = await ethers.getContractFactory('ERC20Token');
+  const deployedERC20 = await ERC20_factory.deploy(10_000_000, 5);
 
-  const ERC20_factory = await ethers.getContractFactory("ERC20");
-  const deployedERC20 = await ERC20_factory.deploy("Master Coin", "MCN", 18, 70000000);
+  await deployedERC20.waitForDeployment();
 
+  console.log(
+    'ERC20Token deployed address: ',
+    await deployedERC20.getAddress()
+  );
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;

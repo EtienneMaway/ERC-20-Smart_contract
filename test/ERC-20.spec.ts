@@ -1,220 +1,172 @@
-import {
-  loadFixture,
-} from "@nomicfoundation/hardhat-toolbox/network-helpers";
-import { expect, assert } from "chai";
-import { ethers } from "hardhat";
+import { expect, assert } from 'chai';
+import { ethers } from 'hardhat';
+import { ERC20Token } from '../typechain-types';
+import ERC20Deployer from './helpers/ERC20.deployer';
+import { Signer } from 'ethers';
+describe.only('ERC20Token Test cases', async () => {
+  let deployedERC20: ERC20Token;
+  let owner: Signer;
+  let james: Signer;
+  let alice: Signer;
+  let otherAccount: Signer;
 
-describe("ERC20-SMART-CONTRACT", ()=> {
-    const NAME = "Master Coin";
-    const SYMBOL = "MCN";
-    let DECIMALS = 18;
-    let INITIAL_SUPPLY = 70_000_000; 
-    let TOTAL_SUPPLY = INITIAL_SUPPLY * 10 ** DECIMALS;
+  // Before hook to set up initial state
+  before(async () => {
+    // Fetch Ethereum signers
+    [owner, james, alice, otherAccount] = await ethers.getSigners();
 
-  async function deployERC20Fixture() {
-    const [ owner, james, alice, otherAccount ] = await ethers.getSigners()
+    ({ deployedERC20 } = await ERC20Deployer());
+  });
 
-    const ERC20_factory = await ethers.getContractFactory("ERC20");
-    const deployedERC20 = await ERC20_factory.deploy(
-			NAME,
-			SYMBOL,
-			DECIMALS,
-			INITIAL_SUPPLY 
-		);
+  it('should set the right owner', async () => {
+    const rightOwner = await deployedERC20.owner();
+    expect(rightOwner).to.equal(await owner.getAddress());
+  });
+  it('should set the correct name', async () => {
+    const expectedName = 'Master Coin';
+    const currentName = await deployedERC20.name();
 
-    return { deployedERC20, owner, james, alice, otherAccount };
-  }
+    assert(currentName === expectedName, 'names should be equal');
+  });
 
-  describe("Deployment",() => {
-    describe("failure", async () => {
-      // We deploy again the contract at this point 
-      // with the invalid values to expect failure
-      it("should fail if initial supply is lesser than or equal to 0", async () => {
-        const ERC20_factory = await ethers.getContractFactory("ERC20");
-        await expect(
-          ERC20_factory.deploy(NAME, SYMBOL, DECIMALS, 0)
-        ).to.be.revertedWith("Initial supply must be positive");
-      });
+  it('should set the correct Symbol', async () => {
+    const expectedSymbol = 'MCN';
+    const currentSymbol = await deployedERC20.symbol();
 
-      it("should fail if decimals are lesser than or equal to 0", async () => {
-        const ERC20_factory = await ethers.getContractFactory("ERC20");
-        await expect(
-          ERC20_factory.deploy(NAME, SYMBOL, 0, INITIAL_SUPPLY)
-        ).to.be.revertedWith("The decimals must be positive");
-      });
-    });
-    describe("success", async () => {
-      it('Should have the correct name',async ()=>{
-        const { deployedERC20 } = await loadFixture(deployERC20Fixture);
+    assert(currentSymbol === expectedSymbol, 'symbols should be identical');
+  });
+  it('should set the correct token mint limit', async () => {
+    const expectedCap = 10_000_000 * 10 ** 18;
+    const tokenMintLimit = Number(await deployedERC20.cap());
 
-        const expectedName = "Master Coin"
-        const actualName = await deployedERC20.name()
+    assert(
+      expectedCap === tokenMintLimit,
+      "'expectedCap' and 'tokenMintLimit' should be equal"
+    );
+  });
 
-        assert(expectedName === actualName, "names don't match")
-      })
-      it('Should have the correct Symbol',async ()=>{
-        const { deployedERC20 } = await loadFixture(deployERC20Fixture);
+  it('should mint tokens and assign the totalSupply to the owner', async () => {
+    const totalSupply = await deployedERC20.totalSupply();
+    const ownerBalance = await deployedERC20.balanceOf(
+      await owner.getAddress()
+    );
+    assert(
+      totalSupply === ownerBalance,
+      'totalSupply should be equal to ownerBalance'
+    );
+  });
 
-        const expectedSymbol = "MCN";
-        const actualSymbol = await deployedERC20.symbol();
+  it('should set the correct block reward', async () => {
+    const expectedBlockReward = BigInt(5 * 10 ** 18);
+    const blockReward = await deployedERC20.blockReward();
+    expect(blockReward).to.equal(expectedBlockReward);
+  });
 
-        assert(expectedSymbol === actualSymbol, "Symbols don't match")
-      })
+  it('should update the block reward only by the owner', async () => {
+    const newBlockReward = BigInt(7 * 10 ** 18);
 
-      it("should set the correct owner", async () => {
-        const { deployedERC20, owner} = await loadFixture(deployERC20Fixture);
+    await expect(
+      deployedERC20.connect(james).setBlockReward(newBlockReward)
+    ).to.be.revertedWith("You're not authorized");
 
-        expect(await deployedERC20.owner()).to.equal(owner.address)
-      })
-    })
-  })
+    await deployedERC20.connect(owner).setBlockReward(newBlockReward);
 
-  describe("Transfer Function", async () => {
-    describe("failure", async () => {
-      it("should fail if transferring to the zero address", async () => {
-        const {deployedERC20, owner} = await loadFixture(deployERC20Fixture);
-        const zeroAddress = "0x0000000000000000000000000000000000000000";
-        const tokenValue = 100;
+    expect(await deployedERC20.blockReward()).to.equal(newBlockReward);
+  });
 
-        await expect(
-					deployedERC20.connect(owner).transfer(zeroAddress, tokenValue)
-				).to.be.revertedWith("Invalid address");
-      })
+  it('should transfer tokens successfully from account1 to account2', async () => {
+    const initialOwnerBal = await deployedERC20.balanceOf(owner);
+    const initialJamesBal = await deployedERC20.balanceOf(james);
+    const value = BigInt(100_000 * 10 ** 18);
 
-      it("should fail if transferring more than the sender's balance", async () => {
-        const {deployedERC20 , owner, otherAccount} = await loadFixture(deployERC20Fixture);
+    await deployedERC20.connect(owner).transfer(james, value);
+    expect(await deployedERC20.balanceOf(james)).to.equal(
+      initialJamesBal + value
+    );
+    expect(await deployedERC20.balanceOf(owner)).to.equal(
+      initialOwnerBal - value
+    );
 
-        await expect(deployedERC20.connect(otherAccount).transfer(owner, 1)).to.be.revertedWith("Insufficient balance");
-      });
-    })
-    describe("success", async () => {
-      it("should transfer tokens successfully", async () => {
-        const {deployedERC20, owner, otherAccount} = await loadFixture(deployERC20Fixture);
+    const currentJamesBal = initialJamesBal + value;
+    await deployedERC20.connect(james).transfer(alice, currentJamesBal);
+    expect(await deployedERC20.balanceOf(james)).to.equal(0);
+    expect(await deployedERC20.balanceOf(alice)).to.equal(currentJamesBal);
+  });
 
-        const inititialOwnerBalance = await deployedERC20.balanceOf(owner);
-        const value = BigInt(10000000 * (10 ** DECIMALS));
-        const initialOtherAccountBalance = await deployedERC20.balanceOf(otherAccount)
-        
+  it("should fail if transferring more than the sender's balance", async () => {
+    await expect(
+      deployedERC20.connect(james).transfer(owner, 1)
+    ).to.be.revertedWith('ERC20: transfer amount exceeds balance');
+  });
+  it('should fail if transferring tokens to a Zero account', async () => {
+    const zeroAccount = '0x0000000000000000000000000000000000000000';
 
-        await deployedERC20
-					.connect(owner)
-					.transfer(otherAccount, value);
-        expect(await deployedERC20.balanceOf(owner)).to.be.equal(
-              inititialOwnerBalance - value
-				);
-        
-        expect(await deployedERC20.balanceOf(otherAccount)).to.be.equal(
-					initialOtherAccountBalance + value
-				);
-      })
+    await expect(
+      deployedERC20.connect(owner).transfer(zeroAccount, 1)
+    ).to.be.revertedWith('ERC20: transfer to the zero address');
+  });
 
-      it("should emit the Transfer event", async () => {
-        const {deployedERC20, owner, otherAccount} = await loadFixture(deployERC20Fixture);
+  it('should emit Transfer event', async () => {
+    const value = BigInt(50_000 * 10 ** 18);
 
-				const value = BigInt(10000 * 10 ** DECIMALS);
+    expect(await deployedERC20.connect(owner).transfer(alice, value))
+      .emit(deployedERC20, 'Transfer')
+      .withArgs(owner, james, value);
+  });
 
-				expect(
-					await deployedERC20.connect(owner).transfer(otherAccount, value)
-				).to.emit(deployedERC20, "Transfer").withArgs(owner, otherAccount, value);
-      })
-    })
-  })
+  it("should approve the designated valid account and return 'true'", async () => {
+    const value = BigInt(50_000 * 10 ** 18);
 
-  describe("Approve function", () => {
-    describe("failure", async () => {
-      it("should return boolean: false", async () => {
-        // When not approved, getAllowance() returns false
-				const { deployedERC20, owner, otherAccount } = await loadFixture(
-					deployERC20Fixture
-				);
+    await deployedERC20.connect(owner).approve(james, value);
+    expect((await deployedERC20.allowance(owner, james)) > 0).to.be.true;
+  });
 
-				expect(
-					await deployedERC20.getAllowance(owner, otherAccount)
-				).to.be.equal(false);
-			});
-    })
-    describe("success", async () => {
-      it("should return 'true'", async () => {
-        // Here, the owner designated otherAccount to spend token on their behal,
-        // getAllowance() will return true
-				const { deployedERC20, owner, otherAccount } = await loadFixture(
-					deployERC20Fixture
-				);
+  it('should emit Approve event', async () => {
+    expect(await deployedERC20.connect(owner).approve(james, 1000))
+      .to.emit(deployedERC20, 'Approve')
+      .withArgs(owner, james, 1000);
+  });
 
-				await deployedERC20
-					.connect(owner)
-					.approve(otherAccount, BigInt(10_000_000));
+  it('should fail to approve a Zero account', async () => {
+    const value = BigInt(500_000 * 10 ** 18);
+    const zeroAccount = '0x0000000000000000000000000000000000000000';
 
-				expect(
-					await deployedERC20.getAllowance(owner, otherAccount)
-				).to.be.equal(true);
-			});
-    })
-  })
+    await expect(
+      deployedERC20.connect(owner).approve(zeroAccount, value)
+    ).to.be.revertedWith('ERC20: approve to the zero address');
+  });
 
-  describe("transferFrom function", () => {
-    describe('failure', async () => {
-      it("should fail if the holder and receiver addresses are zero", async() => {
-          const {deployedERC20, otherAccount} = await loadFixture(deployERC20Fixture);
+  it('should tranfer the allowance successfully', async () => {
+    const value = BigInt(50_000 * 10 ** 18);
 
-          const holderAddress = "0x0000000000000000000000000000000000000000";
-          const receiverAddress = "0x0000000000000000000000000000000000000000";
-          
-          await expect(
-						deployedERC20
-							.connect(otherAccount)
-							.tranferFrom(holderAddress, receiverAddress, 5000000)
-					).to.be.revertedWith("Invalid addresses");
-      })
-      it("should fail if the transfering more than the holder's balance", async() => {
-        const { deployedERC20, james, alice, otherAccount } = await loadFixture(
-						deployERC20Fixture
-					);
+    const innitalAliceBal = await deployedERC20.balanceOf(alice);
 
-          await expect(
-						deployedERC20.connect(james).tranferFrom(alice, otherAccount, 1)
-					).to.be.revertedWith("Insufficient balance from the token owner");
-      })
-      
-      it("should fail if transfering more than the allowance", async() => {
-        const { deployedERC20, owner, james, alice } =
-					await loadFixture(deployERC20Fixture);
+    await deployedERC20.connect(owner).approve(james, value);
 
-					await expect(
-						deployedERC20.connect(james).tranferFrom(owner, alice, 501)
-					).to.be.revertedWith("Allowance exceeded");
-      })
-    })
+    await deployedERC20.connect(james).transferFrom(owner, alice, value);
 
-    describe("success", () => {
-      it("should transfer the funds", async () => {
-        const {deployedERC20, owner, james, alice} = await loadFixture(deployERC20Fixture);
+    expect(await deployedERC20.balanceOf(alice)).to.equal(
+      innitalAliceBal + value
+    );
+    expect(await deployedERC20.allowance(owner, james)).to.equal(0);
+  });
 
-        const initialOwnerBal = await deployedERC20.balanceOf(owner.address);
-        const value = BigInt(4_500_000);
-        const initialJamesBal = await deployedERC20.balanceOf(james.address);
+  it('should fail if the receiver has zero accounts ', async () => {
+    const value = BigInt(5_000 * 10 ** 18);
+    const receiver = '0x0000000000000000000000000000000000000000';
 
-        await deployedERC20.connect(owner).approve(alice, value);
-        await deployedERC20.connect(alice).tranferFrom(owner, james, value);
+    await deployedERC20.connect(owner).approve(james, value);
+    await expect(
+      deployedERC20.connect(james).transferFrom(owner, receiver, value)
+    ).to.be.revertedWith('ERC20: transfer to the zero address');
+  });
 
-        expect(await deployedERC20.balanceOf(owner)).to.be.equal(
-					initialOwnerBal - value
-				);
-        expect(await deployedERC20.balanceOf(james)).to.be.equal(
-					initialJamesBal + value
-				);
-      })
+  it('should fail if tranfering more than the allowance', async () => {
+    const value = 2000;
 
-      it("should emit the approve Event", async () => {
-      const {deployedERC20, owner, james, alice} = await loadFixture(deployERC20Fixture);
-
-      const value = BigInt(500);
-
-			await deployedERC20.connect(owner).approve(alice, value);
-			expect(
-        await deployedERC20.connect(alice).tranferFrom(owner, james, value)
-        ).to.emit(deployedERC20, "Approve").withArgs(owner, james, value);
-    })
-    })
-  })
-})
+    await deployedERC20.connect(owner).approve(james, value);
+    await expect(
+      deployedERC20.connect(james).transferFrom(owner, alice, 2001)
+    ).to.be.revertedWith('ERC20: insufficient allowance');
+  });
+});
