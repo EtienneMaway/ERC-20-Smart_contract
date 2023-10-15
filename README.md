@@ -36,9 +36,7 @@ The test directory contains test files written in Hardhat for comprehensive smar
 # Deploying 
 
 npx hardhat run scripts/deploy.ts
-Contributing
+
+# Contributing
+
 We welcome contributions! If you have suggestions, or enhancements, or want to report issues, please create an issue or open a pull request.
-
-License
-This smart contract is distributed under the MIT License.
-
